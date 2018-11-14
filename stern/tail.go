@@ -21,6 +21,7 @@ import (
 	"hash/fnv"
 	"os"
 	"regexp"
+	"sync"
 	"text/template"
 
 	"github.com/fatih/color"
@@ -70,6 +71,10 @@ var colorList = [][2]*color.Color{
 	{color.New(color.FgHiBlue), color.New(color.FgBlue)},
 	{color.New(color.FgHiRed), color.New(color.FgRed)},
 }
+
+// printMutex is used to make sure output of print statements does not get interleaved.
+// See Print() function below.
+var printMutex sync.Mutex
 
 func determineColor(podName string) (podColor, containerColor *color.Color) {
 	hash := fnv.New32()
@@ -163,6 +168,13 @@ func (t *Tail) Print(msg string) {
 		PodColor:       t.podColor,
 		ContainerColor: t.containerColor,
 	}
+
+	// Mutex to ensure writes don't interleave.  Template.Execute does not guarantee non-interleaved
+	// writes when using the same Writer.
+	// See also: https://github.com/golang/go/commit/1acff5fe61013d4f5b1ed6602654abbbe73b1599
+	printMutex.Lock()
+	defer printMutex.Unlock()
+
 	err := t.tmpl.Execute(os.Stdout, vm)
 	if err != nil {
 		os.Stderr.WriteString(fmt.Sprintf("expanding template failed: %s", err))
